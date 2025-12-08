@@ -11,11 +11,12 @@ echo -e "${GREEN}Starting initialization...${NC}"
 
 # Function to install Fluentd
 install_fluentd() {
-    echo -e "${YELLOW}Installing Fluentd...${NC}"
+    echo -e "${YELLOW}Installing Fluentd with NGINX log parsing...${NC}"
     helm repo add fluent https://fluent.github.io/helm-charts
     helm repo update
-    helm install my-fluentd-release fluent/fluentd
+    helm install my-fluentd-release fluent/fluentd -f fluentd/values.yaml
     echo -e "${GREEN}Fluentd installed successfully${NC}"
+    echo -e "${YELLOW}Fluentd will parse NGINX logs and export Prometheus metrics${NC}"
 }
 
 # Function to install kube-prometheus-stack (Prometheus + Grafana)

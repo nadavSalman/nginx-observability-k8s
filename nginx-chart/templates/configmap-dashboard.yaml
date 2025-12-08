@@ -1,0 +1,13 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nginx-chart.fullname" . }}-dashboard
+  namespace: monitoring
+  labels:
+    {{- include "nginx-chart.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  nginx-observability.json: |-
+{{ .Files.Get "dashboards/nginx-observability.json" | indent 4 }}
+{{- end }}

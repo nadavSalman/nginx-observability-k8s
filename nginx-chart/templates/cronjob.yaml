@@ -1,0 +1,86 @@
+{{- if .Values.trafficGenerator.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "nginx-chart.fullname" . }}-traffic-generator
+  labels:
+    {{- include "nginx-chart.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.trafficGenerator.schedule | quote }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: traffic-generator
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: traffic-generator
+              image: curlimages/curl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  #!/bin/sh
+                  
+                  # Define endpoints
+                  ENDPOINTS="/ /api/users /api/products /health /metrics /admin /nonexistent"
+                  SERVICE="http://{{ include "nginx-chart.fullname" . }}"
+                  
+                  echo "Starting traffic generation to $SERVICE"
+                  
+                  # Generate 50-100 random requests
+                  TOTAL_REQUESTS=$((50 + $RANDOM % 51))
+                  echo "Generating $TOTAL_REQUESTS requests"
+                  
+                  for i in $(seq 1 $TOTAL_REQUESTS); do
+                    # Randomly select endpoint
+                    ENDPOINT_COUNT=$(echo $ENDPOINTS | wc -w)
+                    ENDPOINT_INDEX=$(($RANDOM % $ENDPOINT_COUNT + 1))
+                    ENDPOINT=$(echo $ENDPOINTS | cut -d' ' -f$ENDPOINT_INDEX)
+                    
+                    # 40% chance of error request
+                    if [ $(($RANDOM % 100)) -lt 40 ]; then
+                      # Generate error requests (weighted toward 5xx)
+                      ERROR_TYPE=$(($RANDOM % 10))
+                      case $ERROR_TYPE in
+                        0|1|2)
+                          # 500 Internal Server Error (30% of errors)
+                          ENDPOINT="/api/error-$RANDOM"
+                          ;;
+                        3|4)
+                          # 503 Service Unavailable (20% of errors)
+                          ENDPOINT="/api/unavailable-$RANDOM"
+                          ;;
+                        5|6)
+                          # 502 Bad Gateway (20% of errors)
+                          ENDPOINT="/api/badgateway-$RANDOM"
+                          ;;
+                        7|8)
+                          # 404 Not Found (20% of errors)
+                          ENDPOINT="/error/notfound-$RANDOM"
+                          ;;
+                        9)
+                          # 404 Forbidden (10% of errors)
+                          ENDPOINT="/forbidden/path-$RANDOM"
+                          ;;
+                      esac
+                      echo "Request $i: $SERVICE$ENDPOINT (expecting error)"
+                    else
+                      echo "Request $i: $SERVICE$ENDPOINT"
+                    fi
+                    
+                    # Make request and capture status code
+                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE$ENDPOINT" 2>/dev/null || echo "000")
+                    echo "  Status: $HTTP_CODE"
+                    
+                    # Small delay between requests
+                    sleep 0.1
+                  done
+                  
+                  echo "Traffic generation complete"
+{{- end }}
+

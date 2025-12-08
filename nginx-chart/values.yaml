@@ -41,6 +41,21 @@ nginx:
             index index.html index.htm;
         }
 
+        # Simulate 500 errors for /api/error-* endpoints
+        location ~ ^/api/error- {
+            return 500 "Internal Server Error\n";
+        }
+
+        # Simulate 503 errors for /api/unavailable-* endpoints
+        location ~ ^/api/unavailable- {
+            return 503 "Service Unavailable\n";
+        }
+
+        # Simulate 502 errors for /api/badgateway-* endpoints
+        location ~ ^/api/badgateway- {
+            return 502 "Bad Gateway\n";
+        }
+
         location /nginx_status {
             stub_status on;
             access_log off;
@@ -55,6 +70,13 @@ nginx:
 prometheus:
   scrape: true
   port: 9113
+
+trafficGenerator:
+  enabled: true
+  schedule: "*/2 * * * *"  # Every 2 minutes
+
+dashboard:
+  enabled: true
 
 resources: {}
 
