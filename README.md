@@ -2,6 +2,11 @@
 
 A complete NGINX observability solution running on Kind (Kubernetes in Docker) with dual metric collection sources: NGINX Prometheus Exporter and Fluentd log parsing.
 
+
+![Alt text](images/dashboard-img-01.png)
+![Alt text](images/dashboard-img-02.png)
+
+
 ## Architecture Overview
 
 ```
@@ -102,6 +107,220 @@ Parsed from NGINX access logs with rich labels:
    ```
 5. **Prometheus filter** generates metrics from parsed fields
 6. **Prometheus scrapes** Fluentd metrics endpoint (`:24231/metrics`)
+
+## 📊 How Access Logs are Converted to Metrics
+
+This section explains the complete transformation process from NGINX access logs to Prometheus metrics.
+
+### NGINX Log Format
+
+NGINX is configured with a custom log format that captures essential request information:
+
+```nginx
+log_format custom_format '$remote_addr - $remote_user [$time_local] '
+                        '"$request" $status $body_bytes_sent '
+                        '"$http_referer" "$http_user_agent" '
+                        '$upstream_response_time';
+```
+
+**Example log line:**
+```
+10.244.1.30 - - [09/Dec/2025:11:42:15 +0000] "GET /api/error-12345 HTTP/1.1" 500 22 "-" "curl/8.17.0" -
+```
+
+**Log Fields:**
+- `$remote_addr` (10.244.1.30): Client IP address
+- `$remote_user` (-): Authenticated user (if any)
+- `$time_local` ([09/Dec/2025:11:42:15 +0000]): Request timestamp
+- `$request` ("GET /api/error-12345 HTTP/1.1"): HTTP method, path, and protocol
+- `$status` (500): HTTP status code
+- `$body_bytes_sent` (22): Response size in bytes
+- `$http_referer` (-): Referer header
+- `$http_user_agent` (curl/8.17.0): User agent
+- `$upstream_response_time` (-): Backend response time (if proxied)
+
+### Kubernetes Log Enrichment
+
+Kubernetes wraps the NGINX log with metadata when writing to `/var/log/containers/`:
+
+```
+2025-12-09T11:42:15.123456789Z stdout F 10.244.1.30 - - [09/Dec/2025:11:42:15 +0000] "GET /api/error-12345 HTTP/1.1" 500 22 "-" "curl/8.17.0" -
+```
+
+**Kubernetes adds:**
+- Timestamp (2025-12-09T11:42:15.123456789Z)
+- Stream (stdout/stderr)
+- Flags (F = full line)
+
+### Fluentd Parsing
+
+Fluentd's regex parser extracts structured fields from the combined Kubernetes + NGINX log:
+
+**Regex Pattern:**
+```ruby
+/^(?<timestamp>.+) (?<stream>stdout|stderr)( (.))? (?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] \"(?<method>\w+)(?:\s+(?<path>[^\"]*?)(?:\s+\S*)?)?\" (?<status_code>[^ ]*) (?<size>[^ ]*)(?:\s"(?<referer>[^\"]*)") "(?<agent>[^\"]*)" (?<urt>[^ ]*)$/
+```
+
+**Extracted Fields:**
+- `timestamp`: 2025-12-09T11:42:15.123456789Z
+- `stream`: stdout
+- `remote`: 10.244.1.30
+- `method`: GET
+- `path`: /api/error-12345
+- `status_code`: 500
+- `size`: 22
+- `agent`: curl/8.17.0
+- `urt`: - (upstream response time)
+
+### Metric Generation
+
+Fluentd's Prometheus filter transforms the parsed fields into three metrics:
+
+#### 1. **nginx_size_bytes_total** (Counter)
+
+**Purpose:** Track total bytes sent in HTTP responses
+
+**Field Mapping:**
+- Uses: `size` field (22 bytes)
+- Type: Counter (increments by size value)
+- Labels: None
+
+**Example:**
+```
+# Before request
+nginx_size_bytes_total 1000.0
+
+# After processing log line with size=22
+nginx_size_bytes_total 1022.0
+```
+
+**Configuration:**
+```yaml
+<metric>
+  name nginx_size_bytes_total
+  type counter
+  desc nginx bytes sent
+  key size
+</metric>
+```
+
+#### 2. **nginx_request_status_code_total** (Counter)
+
+**Purpose:** Count requests by HTTP status code, method, and path
+
+**Field Mapping:**
+- Uses: `method`, `path`, `status_code` fields
+- Type: Counter (increments by 1 for each request)
+- Labels: method=GET, path=/api/error-12345, status_code=500
+
+**Example:**
+```
+# Before request
+nginx_request_status_code_total{method="GET",path="/api/error-12345",status_code="500"} 5.0
+
+# After processing log line
+nginx_request_status_code_total{method="GET",path="/api/error-12345",status_code="500"} 6.0
+```
+
+**Configuration:**
+```yaml
+<metric>
+  name nginx_request_status_code_total
+  type counter
+  desc nginx request status code
+  <labels>
+    method ${method}
+    path ${path}
+    status_code ${status_code}
+  </labels>
+</metric>
+```
+
+#### 3. **nginx_upstream_time_seconds_hist** (Histogram)
+
+**Purpose:** Measure backend response time distribution
+
+**Field Mapping:**
+- Uses: `urt` field (upstream response time)
+- Type: Histogram (buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+- Labels: method=GET, path=/api/error-12345, status_code=500
+
+**Example:**
+```
+# If urt = 0.15 seconds
+nginx_upstream_time_seconds_hist_bucket{method="GET",path="/api/error-12345",status_code="500",le="0.1"} 5
+nginx_upstream_time_seconds_hist_bucket{method="GET",path="/api/error-12345",status_code="500",le="0.25"} 6
+nginx_upstream_time_seconds_hist_sum{method="GET",path="/api/error-12345",status_code="500"} 0.85
+nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",status_code="500"} 6
+```
+
+**Configuration:**
+```yaml
+<metric>
+  name nginx_upstream_time_seconds_hist
+  type histogram
+  desc Histogram of the total time spent on receiving the response from the upstream server
+  key urt
+  <labels>
+    method ${method}
+    path ${path}
+    status_code ${status_code}
+  </labels>
+</metric>
+```
+
+### Complete Transformation Example
+
+**Input (NGINX Log):**
+```
+10.244.1.30 - - [09/Dec/2025:11:42:15 +0000] "GET /api/error-12345 HTTP/1.1" 500 22 "-" "curl/8.17.0" -
+```
+
+**Output (Prometheus Metrics):**
+```
+# HELP nginx_size_bytes_total nginx bytes sent
+# TYPE nginx_size_bytes_total counter
+nginx_size_bytes_total 1022.0
+
+# HELP nginx_request_status_code_total nginx request status code
+# TYPE nginx_request_status_code_total counter
+nginx_request_status_code_total{method="GET",path="/api/error-12345",status_code="500"} 6.0
+
+# HELP nginx_upstream_time_seconds_hist Histogram of the total time spent on receiving the response from the upstream server
+# TYPE nginx_upstream_time_seconds_hist histogram
+nginx_upstream_time_seconds_hist_bucket{method="GET",path="/api/error-12345",status_code="500",le="0.005"} 0
+nginx_upstream_time_seconds_hist_bucket{method="GET",path="/api/error-12345",status_code="500",le="0.01"} 0
+nginx_upstream_time_seconds_hist_bucket{method="GET",path="/api/error-12345",status_code="500",le="+Inf"} 6
+nginx_upstream_time_seconds_hist_sum{method="GET",path="/api/error-12345",status_code="500"} 0.0
+nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",status_code="500"} 6
+```
+
+### Field-to-Metric Mapping Table
+
+| NGINX Log Field | Fluentd Field | Metric Name | Metric Type | Usage |
+|-----------------|---------------|-------------|-------------|-------|
+| `$body_bytes_sent` | `size` | `nginx_size_bytes_total` | Counter | Counter value |
+| `$request` (method) | `method` | `nginx_request_status_code_total` | Counter | Label |
+| `$request` (path) | `path` | `nginx_request_status_code_total` | Counter | Label |
+| `$status` | `status_code` | `nginx_request_status_code_total` | Counter | Label |
+| `$upstream_response_time` | `urt` | `nginx_upstream_time_seconds_hist` | Histogram | Histogram value |
+| `$request` (method) | `method` | `nginx_upstream_time_seconds_hist` | Histogram | Label |
+| `$request` (path) | `path` | `nginx_upstream_time_seconds_hist` | Histogram | Label |
+| `$status` | `status_code` | `nginx_upstream_time_seconds_hist` | Histogram | Label |
+
+### Why This Approach?
+
+**Advantages:**
+1. **Rich Labels**: Per-endpoint, per-method, per-status-code granularity
+2. **Historical Data**: Counters preserve all historical request data
+3. **Flexible Analysis**: Can aggregate, filter, and slice metrics in Prometheus
+4. **Low Cardinality Risk**: Only creates metrics for accessed endpoints
+5. **Latency Distribution**: Histograms enable percentile calculations (p50, p95, p99)
+
+**Trade-offs:**
+- Slight delay (log write → parse → scrape cycle)
+- Higher cardinality than simple counters (but manageable)
+- Requires regex pattern maintenance if log format changes
 
 ### 📈 Complete Metrics Comparison Table
 
