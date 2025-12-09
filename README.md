@@ -51,20 +51,9 @@ Grafana (included in kube-prometheus-stack)
 - **kube-prometheus-stack**: Prometheus Operator, Prometheus, Grafana
 - **nginx-chart**: v0.1.0 - Custom NGINX with exporter sidecar
 
-### NGINX Configuration
-- **Custom Log Format**:
-  ```
-  log_format custom_format '$remote_addr - $remote_user [$time_local] '
-                          '"$request" $status $body_bytes_sent '
-                          '"$http_referer" "$http_user_agent" '
-                          '$upstream_response_time';
-  ```
-- **Key Variables**:
-  - `$upstream_response_time`: Backend latency tracking
-  - `$body_bytes_sent`: Response size tracking
-  - `$status`: HTTP status codes
-
 ### Metrics Sources
+
+See the [How Access Logs are Converted to Metrics](#-how-access-logs-are-converted-to-metrics) section below for detailed explanation of log parsing and metric generation.
 
 #### 1. NGINX Prometheus Exporter (9 metrics)
 Real-time operational metrics from `/nginx_status`:
@@ -79,20 +68,10 @@ Real-time operational metrics from `/nginx_status`:
 - `up`: Exporter health status
 
 #### 2. Fluentd Log-Based Metrics (3 metrics)
-Parsed from NGINX access logs with rich labels:
-
-1. **`nginx_size_bytes_total`** (counter)
-   - Description: Total bytes sent in responses
-   - Labels: `method`, `path`, `status_code`
-
-2. **`nginx_request_status_code_total`** (counter)
-   - Description: Request count by status code
-   - Labels: `method`, `path`, `status_code`
-
-3. **`nginx_upstream_time_seconds_hist`** (histogram)
-   - Description: Backend response time distribution
-   - Labels: `method`, `path`, `status_code`
-   - Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
+Parsed from NGINX access logs with rich labels (see [detailed explanation](#-how-access-logs-are-converted-to-metrics)):
+- `nginx_size_bytes_total`: Total response bytes
+- `nginx_request_status_code_total`: Requests by status code
+- `nginx_upstream_time_seconds_hist`: Response time distribution
 
 ## Data Flow
 
