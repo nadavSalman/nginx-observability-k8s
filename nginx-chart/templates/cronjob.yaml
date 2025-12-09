@@ -26,52 +26,45 @@ spec:
                 - |
                   #!/bin/sh
                   
-                  # Define endpoints
-                  ENDPOINTS="/ /api/users /api/products /health /metrics /admin /nonexistent"
                   SERVICE="http://{{ include "nginx-chart.fullname" . }}"
                   
                   echo "Starting traffic generation to $SERVICE"
                   
-                  # Generate 50-100 random requests
-                  TOTAL_REQUESTS=$((50 + $RANDOM % 51))
-                  echo "Generating $TOTAL_REQUESTS requests"
+                  # Generate 100 requests with equal distribution across all status codes
+                  TOTAL_REQUESTS=100
+                  echo "Generating $TOTAL_REQUESTS requests (20 per status code)"
                   
                   for i in $(seq 1 $TOTAL_REQUESTS); do
-                    # Randomly select endpoint
-                    ENDPOINT_COUNT=$(echo $ENDPOINTS | wc -w)
-                    ENDPOINT_INDEX=$(($RANDOM % $ENDPOINT_COUNT + 1))
-                    ENDPOINT=$(echo $ENDPOINTS | cut -d' ' -f$ENDPOINT_INDEX)
+                    # Cycle through status codes equally (20 of each)
+                    STATUS_TYPE=$(($i % 5))
                     
-                    # 40% chance of error request
-                    if [ $(($RANDOM % 100)) -lt 40 ]; then
-                      # Generate error requests (weighted toward 5xx)
-                      ERROR_TYPE=$(($RANDOM % 10))
-                      case $ERROR_TYPE in
-                        0|1|2)
-                          # 500 Internal Server Error (30% of errors)
-                          ENDPOINT="/api/error-$RANDOM"
-                          ;;
-                        3|4)
-                          # 503 Service Unavailable (20% of errors)
-                          ENDPOINT="/api/unavailable-$RANDOM"
-                          ;;
-                        5|6)
-                          # 502 Bad Gateway (20% of errors)
-                          ENDPOINT="/api/badgateway-$RANDOM"
-                          ;;
-                        7|8)
-                          # 404 Not Found (20% of errors)
-                          ENDPOINT="/error/notfound-$RANDOM"
-                          ;;
-                        9)
-                          # 404 Forbidden (10% of errors)
-                          ENDPOINT="/forbidden/path-$RANDOM"
-                          ;;
-                      esac
-                      echo "Request $i: $SERVICE$ENDPOINT (expecting error)"
-                    else
-                      echo "Request $i: $SERVICE$ENDPOINT"
-                    fi
+                    case $STATUS_TYPE in
+                      0)
+                        # 200 OK
+                        ENDPOINT="/"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 200)"
+                        ;;
+                      1)
+                        # 404 Not Found
+                        ENDPOINT="/error/notfound-$RANDOM"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 404)"
+                        ;;
+                      2)
+                        # 500 Internal Server Error
+                        ENDPOINT="/api/error-$RANDOM"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 500)"
+                        ;;
+                      3)
+                        # 502 Bad Gateway
+                        ENDPOINT="/api/badgateway-$RANDOM"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 502)"
+                        ;;
+                      4)
+                        # 503 Service Unavailable
+                        ENDPOINT="/api/unavailable-$RANDOM"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 503)"
+                        ;;
+                    esac
                     
                     # Make request and capture status code
                     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE$ENDPOINT" 2>/dev/null || echo "000")
