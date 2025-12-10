@@ -279,6 +279,8 @@ nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",stat
 | NGINX Log Field | Fluentd Field | Metric Name | Metric Type | Usage |
 |-----------------|---------------|-------------|-------------|-------|
 | `$body_bytes_sent` | `size` | `nginx_size_bytes_total` | Counter | Counter value |
+| `$hostname` | `instance` | All metrics | Counter/Histogram | Label (pod name) |
+| `{{ .Values.serviceType }}` | `service_type` | All metrics | Counter/Histogram | Label (service classification) |
 | `$request` (method) | `method` | `nginx_request_status_code_total` | Counter | Label |
 | `$request` (path) | `path` | `nginx_request_status_code_total` | Counter | Label |
 | `$status` | `status_code` | `nginx_request_status_code_total` | Counter | Label |
@@ -287,19 +289,149 @@ nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",stat
 | `$request` (path) | `path` | `nginx_upstream_time_seconds_hist` | Histogram | Label |
 | `$status` | `status_code` | `nginx_upstream_time_seconds_hist` | Histogram | Label |
 
+### Custom Labels for Microservice Identification
+
+In addition to the standard labels (`method`, `path`, `status_code`), we add two custom labels to identify specific NGINX instances in a microservice architecture.
+
+#### Motivation
+
+**Problem:** In a Kubernetes cluster with multiple NGINX deployments serving different purposes (API gateway, frontend proxy, backend service, etc.), you need to:
+1. **Identify which specific pod** generated each metric (for debugging)
+2. **Group metrics by service type** (for architectural-level monitoring)
+
+**Example Scenarios:**
+- Troubleshooting: "Which exact NGINX pod is experiencing errors?"
+- Architecture: "What's the error rate across all API gateway instances vs. frontend instances?"
+- Capacity planning: "How is traffic distributed across our 3 API gateway replicas?"
+
+#### Custom Labels Implementation
+
+**1. `instance` Label** - Specific Pod Identity
+- **Source**: NGINX `$hostname` variable (automatically set to pod name in Kubernetes)
+- **Example**: `nginx-server-nginx-chart-7d8f9c6b-xk2j9`
+- **Use Case**: Pinpoint individual pod performance, debug specific instances
+
+**NGINX Configuration** ([values.yaml](nginx-chart/values.yaml)):
+```nginx
+log_format custom_format '$remote_addr - $remote_user [$time_local] '
+  '"$request" $status $body_bytes_sent '
+  '"$http_referer" "$http_user_agent" '
+  '$upstream_response_time $hostname {{ .Values.serviceType }}';
+```
+
+**Fluentd Regex** ([fluentd/values.yaml](fluentd/values.yaml)):
+```ruby
+expression /^... (?<urt>[^ ]*) (?<instance>[^ ]*) (?<service_type>[^ ]*)$/
+```
+
+**Fluentd Metric Labels**:
+```yaml
+<labels>
+  method ${method}
+  path ${path}
+  status_code ${status_code}
+  instance ${instance}        # Pod name
+  service_type ${service_type} # Service classification
+</labels>
+```
+
+**2. `service_type` Label** - Service Classification
+- **Source**: Helm value configured at deployment time via `{{ .Values.serviceType }}`
+- **Example**: `api-gateway`, `frontend`, `backend-proxy`, `static-server`
+- **Use Case**: Aggregate metrics by service role in microservice architecture
+
+**Configuration** ([values.yaml](nginx-chart/values.yaml)):
+```yaml
+# Service type label for microservice architecture identification
+serviceType: "api-gateway"  # Options: api-gateway, frontend, backend-proxy, static-server, etc.
+```
+
+**How It Works:**
+1. **Helm templating**: When you deploy with `helm install`, Helm replaces `{{ .Values.serviceType }}` with the actual value
+2. **NGINX logs it**: The rendered config becomes `log_format custom_format '... $hostname api-gateway';`
+3. **Fluentd extracts it**: Regex captures `service_type` field from logs
+4. **Prometheus scrapes it**: Metrics include `service_type="api-gateway"` label
+
+#### Example Metrics with Custom Labels
+
+**Before (without custom labels):**
+```
+nginx_request_status_code_total{method="GET",path="/api/users",status_code="500"} 42
+```
+❌ Which pod? Which service type?
+
+**After (with custom labels):**
+```
+nginx_request_status_code_total{
+  method="GET",
+  path="/api/users",
+  status_code="500",
+  instance="nginx-server-nginx-chart-7d8f9c6b-xk2j9",
+  service_type="api-gateway"
+} 42
+```
+✅ Clear identification: pod `xk2j9` in `api-gateway` service
+
+#### PromQL Query Examples
+
+```promql
+# Error rate for specific pod
+rate(nginx_request_status_code_total{
+  instance="nginx-server-nginx-chart-7d8f9c6b-xk2j9",
+  status_code=~"5.."
+}[5m])
+
+# Total errors across all API gateway instances
+sum(rate(nginx_request_status_code_total{
+  service_type="api-gateway",
+  status_code=~"5.."
+}[5m]))
+
+# Compare error rates by service type
+sum by (service_type) (
+  rate(nginx_request_status_code_total{status_code=~"5.."}[5m])
+)
+
+# Traffic distribution across instances for frontend service
+sum by (instance) (
+  rate(nginx_request_status_code_total{service_type="frontend"}[5m])
+)
+```
+
+#### Deployment Flexibility
+
+To deploy different NGINX types:
+
+```bash
+# API Gateway
+helm install api-gateway ./nginx-chart --set serviceType=api-gateway
+
+# Frontend Proxy
+helm install frontend ./nginx-chart --set serviceType=frontend
+
+# Backend Service
+helm install backend ./nginx-chart --set serviceType=backend-proxy
+```
+
+Each deployment gets its own `service_type` label, enabling multi-tenant monitoring in a single Prometheus instance.
+
 ### Why This Approach?
 
 **Advantages:**
 1. **Rich Labels**: Per-endpoint, per-method, per-status-code granularity
-2. **Historical Data**: Counters preserve all historical request data
-3. **Flexible Analysis**: Can aggregate, filter, and slice metrics in Prometheus
-4. **Low Cardinality Risk**: Only creates metrics for accessed endpoints
-5. **Latency Distribution**: Histograms enable percentile calculations (p50, p95, p99)
+2. **Instance-Level Debugging**: Identify problematic pods instantly
+3. **Service-Level Aggregation**: Monitor by microservice architecture role
+4. **Historical Data**: Counters preserve all historical request data
+5. **Flexible Analysis**: Can aggregate, filter, and slice metrics in Prometheus
+6. **Low Cardinality Risk**: Only creates metrics for accessed endpoints
+7. **Latency Distribution**: Histograms enable percentile calculations (p50, p95, p99)
+8. **Multi-Tenant Ready**: Single Prometheus can monitor multiple NGINX service types
 
 **Trade-offs:**
 - Slight delay (log write → parse → scrape cycle)
-- Higher cardinality than simple counters (but manageable)
+- Higher cardinality than simple counters (but manageable with proper label design)
 - Requires regex pattern maintenance if log format changes
+- Extra label dimensions increase storage requirements (minimal impact)
 
 ### 📈 Complete Metrics Comparison Table
 
@@ -321,9 +453,9 @@ nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",stat
 
 | Metric Name | Type | Description | Labels | Use Case |
 |-------------|------|-------------|--------|----------|
-| `nginx_size_bytes_total` | Counter | Total bytes sent in responses | `method`, `path`, `status_code` | Bandwidth per endpoint |
-| `nginx_request_status_code_total` | Counter | Request count by status code | `method`, `path`, `status_code` | Error rate analysis |
-| `nginx_upstream_time_seconds_hist` | Histogram | Backend response time distribution | `method`, `path`, `status_code` | Latency percentiles |
+| `nginx_size_bytes_total` | Counter | Total bytes sent in responses | `instance`, `service_type` | Bandwidth per pod/service |
+| `nginx_request_status_code_total` | Counter | Request count by status code | `method`, `path`, `status_code`, `instance`, `service_type` | Error rate analysis per pod/service |
+| `nginx_upstream_time_seconds_hist` | Histogram | Backend response time distribution | `method`, `path`, `status_code`, `instance`, `service_type` | Latency percentiles per pod/service |
 
 #### Key Differences: Exporter vs Fluentd Metrics
 
@@ -332,8 +464,8 @@ nginx_upstream_time_seconds_hist_count{method="GET",path="/api/error-12345",stat
 | **Source** | `/nginx_status` endpoint | Access log parsing |
 | **Timing** | Real-time | Log-based (slight delay) |
 | **Granularity** | Global counters | Per-request with labels |
-| **Labels** | Minimal (version info only) | Rich: method, path, status_code |
-| **Use Case** | Overall health/traffic | Request analysis, debugging |
+| **Labels** | Minimal (version info only) | Rich: method, path, status_code, instance, service_type |
+| **Use Case** | Overall health/traffic | Request analysis, debugging, per-pod/service monitoring |
 | **Latency** | Not available | Histogram from $upstream_response_time |
 | **Metric Count** | 9 metrics | 3 metrics |
 | **Overhead** | Very low (single endpoint) | Higher (log parsing) |

@@ -9,7 +9,7 @@ fileConfigs:
       @type tail
       <parse>
         @type regexp
-        expression /^(?<timestamp>.+) (?<stream>stdout|stderr)( (.))? (?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] \"(?<method>\w+)(?:\s+(?<path>[^\"]*?)(?:\s+\S*)?)?\" (?<status_code>[^ ]*) (?<size>[^ ]*)(?:\s"(?<referer>[^\"]*)") "(?<agent>[^\"]*)" (?<urt>[^ ]*)$/
+        expression /^(?<timestamp>.+) (?<stream>stdout|stderr)( (.))? (?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] \"(?<method>\w+)(?:\s+(?<path>[^\"]*?)(?:\s+\S*)?)?\" (?<status_code>[^ ]*) (?<size>[^ ]*)(?:\s"(?<referer>[^\"]*)") "(?<agent>[^\"]*)" (?<urt>[^ ]*) (?<instance>[^ ]*) (?<service_type>[^ ]*)$/
         time_format %d/%b/%Y:%H:%M:%S %z
         keep_time_key true
         types size:integer,reqtime:float,uct:float,uht:float,urt:float
@@ -28,6 +28,10 @@ fileConfigs:
         type counter
         desc nginx bytes sent
         key size
+        <labels>
+          instance ${instance}
+          service_type ${service_type}
+        </labels>
       </metric>
       
       <metric>
@@ -38,6 +42,8 @@ fileConfigs:
           method ${method}
           path ${path}
           status_code ${status_code}
+          instance ${instance}
+          service_type ${service_type}
         </labels>
       </metric>
       
@@ -50,7 +56,11 @@ fileConfigs:
           method ${method}
           path ${path}
           status_code ${status_code}
+          instance ${instance}
+          service_type ${service_type}
         </labels>
+      </metric>
+    </filter>
       </metric>
     </filter>
 
