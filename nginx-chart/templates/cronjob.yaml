@@ -30,19 +30,19 @@ spec:
                   
                   echo "Starting traffic generation to $SERVICE"
                   
-                  # Generate 100 requests with equal distribution across all status codes
+                  # Generate 100 requests with mixed proxied and direct responses
                   TOTAL_REQUESTS=100
-                  echo "Generating $TOTAL_REQUESTS requests (20 per status code)"
+                  echo "Generating $TOTAL_REQUESTS requests (mix of proxied and direct)"
                   
                   for i in $(seq 1 $TOTAL_REQUESTS); do
-                    # Cycle through status codes equally (20 of each)
-                    STATUS_TYPE=$(($i % 5))
+                    # Cycle through different request types (20 of each)
+                    REQUEST_TYPE=$(($i % 5))
                     
-                    case $STATUS_TYPE in
+                    case $REQUEST_TYPE in
                       0)
-                        # 200 OK
-                        ENDPOINT="/"
-                        echo "Request $i: $SERVICE$ENDPOINT (expecting 200)"
+                        # Proxied GET request to httpbin
+                        ENDPOINT="/api/get"
+                        echo "Request $i: $SERVICE$ENDPOINT (proxied to httpbin, expecting 200)"
                         ;;
                       1)
                         # 404 Not Found
@@ -55,9 +55,10 @@ spec:
                         echo "Request $i: $SERVICE$ENDPOINT (expecting 500)"
                         ;;
                       3)
-                        # 502 Bad Gateway
-                        ENDPOINT="/api/badgateway-$RANDOM"
-                        echo "Request $i: $SERVICE$ENDPOINT (expecting 502)"
+                        # Proxied delay request (1-2 seconds)
+                        DELAY=$((1 + RANDOM % 2))
+                        ENDPOINT="/api/delay-$DELAY"
+                        echo "Request $i: $SERVICE$ENDPOINT (proxied with ${DELAY}s delay, expecting 200)"
                         ;;
                       4)
                         # 503 Service Unavailable

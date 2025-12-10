@@ -33,6 +33,10 @@ nginx:
       '"$http_referer" "$http_user_agent" '
       '$upstream_response_time $hostname {{ .Values.serviceType }}';
 
+    upstream httpbin {
+        server nginx-server-nginx-chart-httpbin:80;
+    }
+
     server {
         listen 80;
         server_name localhost;
@@ -42,6 +46,17 @@ nginx:
         location / {
             root /usr/share/nginx/html;
             index index.html index.htm;
+        }
+
+        # Proxy to httpbin for general GET requests
+        location /api/get {
+            proxy_pass http://httpbin/get;
+        }
+
+        # Proxy with delays (1-3 seconds) for latency testing
+        location ~ ^/api/delay-(\d+)$ {
+            proxy_pass http://httpbin/delay/$1;
+            proxy_read_timeout 30s;
         }
 
         # Simulate 500 errors for /api/error-* endpoints

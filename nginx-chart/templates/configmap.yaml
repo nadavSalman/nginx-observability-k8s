@@ -6,4 +6,4 @@ metadata:
     {{- include "nginx-chart.labels" . | nindent 4 }}
 data:
   nginx.conf: |
-{{ .Values.nginx.config | indent 4 }}
+{{ tpl .Values.nginx.config . | indent 4 }}
