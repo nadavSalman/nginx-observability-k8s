@@ -53,6 +53,32 @@ nginx:
             proxy_pass http://httpbin/get;
         }
 
+        # Proxy POST requests to httpbin
+        location /api/post {
+            proxy_pass http://httpbin/post;
+        }
+
+        # Proxy PUT requests to httpbin
+        location /api/put {
+            proxy_pass http://httpbin/put;
+        }
+
+        # Proxy DELETE requests to httpbin
+        location /api/delete {
+            proxy_pass http://httpbin/delete;
+        }
+
+        # Proxy PATCH requests to httpbin
+        location /api/patch {
+            proxy_pass http://httpbin/patch;
+        }
+
+        # Proxy to httpbin status endpoints for generating specific HTTP errors
+        location ~ ^/api/status/(\d+)$ {
+            proxy_pass http://httpbin/status/$1;
+            proxy_read_timeout 30s;
+        }
+
         # Proxy with delays (1-3 seconds) for latency testing
         location ~ ^/api/delay-(\d+)$ {
             proxy_pass http://httpbin/delay/$1;
@@ -91,7 +117,7 @@ prometheus:
 
 trafficGenerator:
   enabled: true
-  schedule: "*/2 * * * *"  # Every 2 minutes
+  schedule: "* * * * *"  # Every minute for higher request rate
 
 dashboard:
   enabled: true

@@ -30,46 +30,76 @@ spec:
                   
                   echo "Starting traffic generation to $SERVICE"
                   
-                  # Generate 100 requests with mixed proxied and direct responses
-                  TOTAL_REQUESTS=100
-                  echo "Generating $TOTAL_REQUESTS requests (mix of proxied and direct)"
+                  # Generate 400 requests with 90% error rate (50% 503, 15% 404, 15% 500, 10% 502)
+                  TOTAL_REQUESTS=400
+                  echo "Generating $TOTAL_REQUESTS requests (90% errors: 50% 503, 15% 404, 15% 500, 10% 502, 10% success)"
                   
                   for i in $(seq 1 $TOTAL_REQUESTS); do
-                    # Cycle through different request types (20 of each)
-                    REQUEST_TYPE=$(($i % 5))
+                    # Cycle through different request types - 50% 503 errors
+                    REQUEST_TYPE=$(($i % 20))
                     
                     case $REQUEST_TYPE in
-                      0)
-                        # Proxied GET request to httpbin
-                        ENDPOINT="/api/get"
-                        echo "Request $i: $SERVICE$ENDPOINT (proxied to httpbin, expecting 200)"
-                        ;;
-                      1)
-                        # 404 Not Found
-                        ENDPOINT="/error/notfound-$RANDOM"
-                        echo "Request $i: $SERVICE$ENDPOINT (expecting 404)"
-                        ;;
-                      2)
-                        # 500 Internal Server Error
-                        ENDPOINT="/api/error-$RANDOM"
-                        echo "Request $i: $SERVICE$ENDPOINT (expecting 500)"
-                        ;;
-                      3)
-                        # Proxied delay request (1-2 seconds)
-                        DELAY=$((1 + RANDOM % 2))
-                        ENDPOINT="/api/delay-$DELAY"
-                        echo "Request $i: $SERVICE$ENDPOINT (proxied with ${DELAY}s delay, expecting 200)"
-                        ;;
-                      4)
-                        # 503 Service Unavailable
+                      0|1|2|3|4|5|6|7|8|9)
+                        # 503 Service Unavailable (50%)
                         ENDPOINT="/api/unavailable-$RANDOM"
                         echo "Request $i: $SERVICE$ENDPOINT (expecting 503)"
                         ;;
+                      10|11|12)
+                        # 404 Not Found (15%)
+                        ENDPOINT="/error/notfound-$RANDOM"
+                        echo "Request $i: $SERVICE$ENDPOINT (expecting 404)"
+                        ;;
+                      13|14|15)
+                        # 500 Internal Server Error via httpbin (15%)
+                        ENDPOINT="/api/status/500"
+                        echo "Request $i: $SERVICE$ENDPOINT (proxied to httpbin /status/500, expecting 500)"
+                        ;;
+                      16|17)
+                        # 502 Bad Gateway via httpbin (10%)
+                        ENDPOINT="/api/status/502"
+                        echo "Request $i: $SERVICE$ENDPOINT (proxied to httpbin /status/502, expecting 502)"
+                        ;;
+                      18|19)
+                        # Successful requests (10%) - using different methods
+                        case $(($i % 5)) in
+                          0)
+                            ENDPOINT="/api/get"
+                            echo "Request $i: $SERVICE$ENDPOINT (GET to httpbin, expecting 200)"
+                            ;;
+                          1)
+                            ENDPOINT="/api/post"
+                            echo "Request $i: $SERVICE$ENDPOINT (POST to httpbin, expecting 200)"
+                            ;;
+                          2)
+                            ENDPOINT="/api/put"
+                            echo "Request $i: $SERVICE$ENDPOINT (PUT to httpbin, expecting 200)"
+                            ;;
+                          3)
+                            ENDPOINT="/api/delete"
+                            echo "Request $i: $SERVICE$ENDPOINT (DELETE to httpbin, expecting 200)"
+                            ;;
+                          4)
+                            DELAY=$((1 + RANDOM % 2))
+                            ENDPOINT="/api/delay-$DELAY"
+                            echo "Request $i: $SERVICE$ENDPOINT (GET with ${DELAY}s delay, expecting 200)"
+                            ;;
+                        esac
+                        ;;
+                    esac
+                    
+                    # Determine HTTP method based on request type
+                    case $REQUEST_TYPE in
+                      0|10) METHOD="GET" ;;
+                      1|13) METHOD="POST" ;;
+                      5) METHOD="PUT" ;;
+                      8) METHOD="DELETE" ;;
+                      15) METHOD="PATCH" ;;
+                      *) METHOD="GET" ;;
                     esac
                     
                     # Make request and capture status code
-                    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE$ENDPOINT" 2>/dev/null || echo "000")
-                    echo "  Status: $HTTP_CODE"
+                    HTTP_CODE=$(curl -X $METHOD -s -o /dev/null -w "%{http_code}" "$SERVICE$ENDPOINT" 2>/dev/null || echo "000")
+                    echo "  Status: $HTTP_CODE (Method: $METHOD)"
                     
                     # Small delay between requests
                     sleep 0.1
