@@ -45,6 +45,10 @@ In this architecture, we chose **Fluent Bit** over Fluentd for the log collectio
 3.  **Built-in Metric Generation**: Fluent Bit has a native `log_to_metrics` filter plugin. This allows us to generate Prometheus metrics directly from log streams without needing complex external plugins or sidecars.
 4.  **Simplicity**: The configuration is straightforward and declarative, making it easier to maintain and deploy compared to the more complex Ruby-based configuration of Fluentd.
 
+
+![Alt text](images/k8s-architecture.png)
+
+
 ## Components
 
 ### Infrastructure
