@@ -1,0 +1,103 @@
+config:
+  service: |
+    [SERVICE]
+        Daemon Off
+        Flush 1
+        Log_Level info
+        Parsers_File parsers.conf
+        Parsers_File custom_parsers.conf
+        HTTP_Server On
+        HTTP_Listen 0.0.0.0
+        HTTP_Port 2020
+        Health_Check On
+
+  inputs: |
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*_nginx-*.log
+        Parser cri
+        Tag kube.*
+        Mem_Buf_Limit 5MB
+        Skip_Long_Lines On
+
+  filters: |
+    [FILTER]
+        Name parser
+        Match kube.*
+        Key_Name message
+        Parser nginx_custom
+        Reserve_Data On
+
+    [FILTER]
+        Name log_to_metrics
+        Match kube.*
+        Tag nginx_metrics
+        Metric_Mode counter
+        Metric_Name nginx_bytes_sent
+        Metric_Description nginx bytes sent
+        Value_Field body_bytes_sent
+        Label_Field service_type
+        Label_Field hostname
+
+    [FILTER]
+        Name log_to_metrics
+        Match kube.*
+        Tag nginx_metrics
+        Metric_Mode counter
+        Metric_Name nginx_request_status_code_total
+        Metric_Description nginx request status code
+        Label_Field method
+        Label_Field path
+        Label_Field status
+        Label_Field service_type
+        Label_Field hostname
+
+    [FILTER]
+        Name log_to_metrics
+        Match kube.*
+        Tag nginx_metrics
+        Metric_Mode histogram
+        Metric_Name nginx_upstream_time_seconds
+        Metric_Description Histogram of the total time spent on receiving the response from the upstream server
+        Value_Field upstream_response_time
+        Label_Field method
+        Label_Field path
+        Label_Field status
+        Label_Field service_type
+        Label_Field hostname
+        Bucket 0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0
+
+  outputs: |
+    [OUTPUT]
+        Name stdout
+        Match *
+
+    [OUTPUT]
+        Name prometheus_exporter
+        Match nginx_metrics
+        Host 0.0.0.0
+        Port 2021
+
+  customParsers: |
+    [PARSER]
+        Name nginx_custom
+        Format regex
+        Regex ^(?<remote_addr>[^ ]*) - (?<remote_user>[^ ]*) \[(?<time_local>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<status>[^ ]*) (?<body_bytes_sent>[^ ]*) "(?<http_referer>[^\"]*)" "(?<http_user_agent>[^\"]*)" (?:(?<upstream_response_time>[\d\.]+)|-) (?<hostname>[^ ]*) (?<service_type>[^ ]*)
+        Types body_bytes_sent:float upstream_response_time:float
+
+extraPorts:
+  - port: 2021
+    containerPort: 2021
+    protocol: TCP
+    name: nginx-metrics
+
+serviceMonitor:
+  enabled: true
+  jobLabel: fluent-bit
+  additionalEndpoints:
+    - port: nginx-metrics
+      path: /metrics
+      interval: 10s
+
+labels:
+  release: kube-prometheus
