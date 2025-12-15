@@ -23,7 +23,7 @@
       },
       "pluginVersion": "10.0.0",
       "targets": [{
-        "expr": "sum(rate(nginx_http_requests_total[5m]))",
+        "expr": "sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m]))",
         "refId": "A"
       }],
       "title": "Request Rate",
@@ -45,7 +45,7 @@
         "textMode": "value_and_name"
       },
       "targets": [{
-        "expr": "sum(rate(nginx_request_status_code_total{status_code=~\"4..|5..\"}[5m])) / sum(rate(nginx_request_status_code_total[5m])) * 100",
+        "expr": "sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\", status=~\"4..|5..\"}[5m])) / sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m])) * 100",
         "refId": "A"
       }],
       "title": "Error Rate %",
@@ -96,7 +96,7 @@
         "textMode": "value_and_name"
       },
       "targets": [{
-        "expr": "histogram_quantile(0.50, sum(rate(nginx_upstream_time_seconds_hist_bucket[5m])) by (le))",
+        "expr": "histogram_quantile(0.50, sum(rate(log_metric_histogram_nginx_upstream_time_seconds_bucket{service_type=\"api-gateway\"}[5m])) by (le))",
         "refId": "A"
       }],
       "title": "Avg Response Time (p50)",
@@ -126,7 +126,7 @@
         "textMode": "value_and_name"
       },
       "targets": [{
-        "expr": "(1 - (sum(rate(nginx_request_status_code_total{status_code=~\"5..\"}[5m])) / sum(rate(nginx_request_status_code_total[5m])))) * 100",
+        "expr": "(1 - (sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\", status=~\"5..\"}[5m])) / sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m])))) * 100",
         "refId": "A"
       }],
       "title": "Availability %",
@@ -156,7 +156,7 @@
         "textMode": "value_and_name"
       },
       "targets": [{
-        "expr": "sum(rate(nginx_size_bytes_total[5m]))",
+        "expr": "sum(rate(log_metric_counter_nginx_bytes_sent{service_type=\"api-gateway\"}[5m]))",
         "refId": "A"
       }],
       "title": "Bandwidth",
@@ -174,7 +174,7 @@
         "tooltip": {"mode": "multi", "sort": "none"}
       },
       "targets": [{
-        "expr": "sum(rate(nginx_http_requests_total[5m]))",
+        "expr": "sum(rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m]))",
         "legendFormat": "Request Rate",
         "refId": "A"
       }],
@@ -194,8 +194,8 @@
         "tooltip": {"mode": "single"}
       },
       "targets": [{
-        "expr": "sum by (status_code) (increase(nginx_request_status_code_total[5m]))",
-        "legendFormat": "{{status_code}}",
+        "expr": "sum by (status) (increase(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m]))",
+        "legendFormat": "{{status}}",
         "refId": "A"
       }],
       "title": "Status Code Distribution",
@@ -210,7 +210,7 @@
         "tooltip": {"mode": "multi"}
       },
       "targets": [
-        {"expr": "sum by (status_code) (rate(nginx_request_status_code_total[5m]))", "legendFormat": "{{status_code}}", "refId": "A"}
+        {"expr": "sum by (status) (rate(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m]))", "legendFormat": "{{status}}", "refId": "A"}
       ],
       "title": "Request Rate by Status Code",
       "type": "timeseries",
@@ -227,9 +227,9 @@
         "tooltip": {"mode": "multi"}
       },
       "targets": [
-        {"expr": "histogram_quantile(0.50, sum(rate(nginx_upstream_time_seconds_hist_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
-        {"expr": "histogram_quantile(0.95, sum(rate(nginx_upstream_time_seconds_hist_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B"},
-        {"expr": "histogram_quantile(0.99, sum(rate(nginx_upstream_time_seconds_hist_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C"}
+        {"expr": "histogram_quantile(0.50, sum(rate(log_metric_histogram_nginx_upstream_time_seconds_bucket{service_type=\"api-gateway\"}[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum(rate(log_metric_histogram_nginx_upstream_time_seconds_bucket{service_type=\"api-gateway\"}[5m])) by (le))", "legendFormat": "p95", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum(rate(log_metric_histogram_nginx_upstream_time_seconds_bucket{service_type=\"api-gateway\"}[5m])) by (le))", "legendFormat": "p99", "refId": "C"}
       ],
       "title": "Response Time Percentiles",
       "type": "timeseries",
@@ -246,7 +246,7 @@
         "sortBy": [{"displayName": "Requests", "desc": true}]
       },
       "targets": [{
-        "expr": "topk(10, sum by (path, status_code) (increase(nginx_request_status_code_total{status_code=~\"4..|5..\"}[5m])))",
+        "expr": "topk(10, sum by (path, status) (increase(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\", status=~\"4..|5..\"}[5m])))",
         "format": "table",
         "instant": true,
         "refId": "A"
@@ -254,7 +254,7 @@
       "title": "Top Error Paths",
       "type": "table",
       "transformations": [
-        {"id": "organize", "options": {"excludeByName": {"Time": true}, "indexByName": {}, "renameByName": {"path": "Path", "status_code": "Status", "Value": "Errors"}}}
+        {"id": "organize", "options": {"excludeByName": {"Time": true}, "indexByName": {}, "renameByName": {"path": "Path", "status": "Status", "Value": "Errors"}}}
       ]
     },
     {
@@ -266,7 +266,7 @@
         "sortBy": [{"displayName": "p95 Latency", "desc": true}]
       },
       "targets": [{
-        "expr": "topk(10, histogram_quantile(0.95, sum by (path, le) (rate(nginx_upstream_time_seconds_hist_bucket[5m]))))",
+        "expr": "topk(10, histogram_quantile(0.95, sum by (path, le) (rate(log_metric_histogram_nginx_upstream_time_seconds_bucket{service_type=\"api-gateway\"}[5m]))))",
         "format": "table",
         "instant": true,
         "refId": "A"
@@ -305,7 +305,7 @@
         "tooltip": {"mode": "multi"}
       },
       "targets": [{
-        "expr": "sum(rate(nginx_size_bytes_total[5m]))",
+        "expr": "sum(rate(log_metric_counter_nginx_bytes_sent{service_type=\"api-gateway\"}[5m]))",
         "legendFormat": "Bytes Sent",
         "refId": "A"
       }],
@@ -324,7 +324,7 @@
         "sortBy": [{"displayName": "Requests", "desc": true}]
       },
       "targets": [{
-        "expr": "topk(10, sum by (path) (increase(nginx_request_status_code_total[5m])))",
+        "expr": "topk(10, sum by (path) (increase(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m])))",
         "format": "table",
         "instant": true,
         "refId": "A"
@@ -345,7 +345,7 @@
         "tooltip": {"mode": "single"}
       },
       "targets": [{
-        "expr": "sum by (method) (increase(nginx_request_status_code_total[5m]))",
+        "expr": "sum by (method) (increase(log_metric_counter_nginx_request_status_code_total{service_type=\"api-gateway\"}[5m]))",
         "legendFormat": "{{method}}",
         "refId": "A"
       }],
@@ -356,13 +356,13 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["nginx", "observability"],
+  "tags": ["nginx", "observability", "api-gateway"],
   "templating": {"list": []},
   "time": {"from": "now-15m", "to": "now"},
   "timepicker": {},
   "timezone": "",
-  "title": "NGINX Observability Enhanced",
-  "uid": "nginx-observability-enhanced",
-  "version": 0,
+  "title": "NGINX Observability - API Gateway",
+  "uid": "nginx-observability-api-gateway",
+  "version": 1,
   "weekStart": ""
 }
